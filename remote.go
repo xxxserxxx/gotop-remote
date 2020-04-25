@@ -1,66 +1,152 @@
 package remote
 
-/*
-gotop_cpu_CPU0 4
-gotop_cpu_CPU1 5
-gotop_cpu_CPU2 8
-gotop_cpu_CPU3 5
-gotop_cpu_CPU4 2
-gotop_cpu_CPU5 3
-gotop_cpu_CPU6 5
-gotop_cpu_CPU7 2
-gotop_disk_:dev:mmcblk0p1 0.27
-gotop_disk_:dev:nvme0n1p1 0.04
-gotop_disk_:dev:nvme0n1p2 0.73
-gotop_memory_Main 35.56328919128121
-gotop_memory_Swap 3.6622413265443243
-gotop_net_recv 637829
-gotop_net_sent 903206
-gotop_temp_acpitz 25
-gotop_temp_ath10k_hwmon 56
-gotop_temp_coretemp_core0 43
-gotop_temp_coretemp_core1 44
-gotop_temp_coretemp_core2 44
-gotop_temp_coretemp_core3 44
-gotop_temp_coretemp_packageid0 44
-gotop_temp_nvme_composite 38
-gotop_temp_nvme_sensor1 38
-gotop_temp_nvme_sensor2 40
-gotop_temp_pch_cannonlake 41
-*/
-
 import (
-	"math/rand"
+	"bufio"
+	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xxxserxxx/gotop/v3/devices"
 )
 
+// TODO Provide way for extensions to add and get configuration data
 func init() {
 	devices.RegisterTemp(updateTemp)
 	devices.RegisterMem(updateMem)
 	devices.RegisterCPU(updateUsage)
+	go func() {
+		loggedErrs := make(map[error]bool)
+		for {
+			res, err := http.Get("http://localhost:9999/metrics")
+			if !loggedErrs[err] {
+				log.Print(err)
+				loggedErrs[err] = true
+				continue
+			}
+			bi := bufio.NewScanner(res.Body)
+			errs := process(bi)
+			for _, err := range errs {
+				if !loggedErrs[err] {
+					log.Print(err)
+					loggedErrs[err] = true
+				}
+			}
+			res.Body.Close()
+			time.Sleep(2 * time.Second)
+		}
+	}()
+}
+
+var (
+	_cpuData  map[string]int
+	_tempData map[string]int
+	_netData  map[string]int
+	_diskData map[string]float64
+	_memData  map[string]float64
+)
+
+func process(data *bufio.Scanner) []error {
+	rv := make([]error, 0)
+	for data.Scan() {
+		line := data.Text()
+		if line[0] == '#' {
+			continue
+		}
+		if line[0:6] != _gotop {
+			continue
+		}
+		sub := line[6:]
+		switch {
+		case strings.HasPrefix(sub, _cpu): // int gotop_cpu_CPU0
+			procInt(line, sub[10:], _cpuData, rv)
+		case strings.HasPrefix(sub, _temp): // int gotop_temp_acpitz
+			procInt(line, sub[11:], _tempData, rv)
+		case strings.HasPrefix(sub, _net): // int gotop_net_recv
+			procInt(line, sub[10:], _tempData, rv)
+		case strings.HasPrefix(sub, _disk): // float % gotop_disk_:dev:mmcblk0p1
+			procFloat(line, sub[11:], _diskData, rv)
+		case strings.HasPrefix(sub, _mem): // float % gotop_memory_Main
+			procFloat(line, sub[13:], _memData, rv)
+		default:
+			// NOP!  This is a metric we don't care about.
+		}
+	}
+	return rv
+}
+
+func procInt(line, sub string, data map[string]int, errs []error) {
+	parts := strings.Split(sub, " ")
+	if len(parts) < 2 {
+		errs = append(errs, fmt.Errorf("bad data; not enough columns in %s", line))
+		return
+	}
+	val, err := strconv.Atoi(parts[1])
+	if err != nil {
+		errs = append(errs, err)
+		return
+	}
+	data[sub] = val
+}
+
+func procFloat(line, sub string, data map[string]float64, errs []error) {
+	parts := strings.Split(sub, " ")
+	if len(parts) < 2 {
+		errs = append(errs, fmt.Errorf("bad data; not enough columns in %s", line))
+		return
+	}
+	val, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		errs = append(errs, err)
+		return
+	}
+	data[sub] = val
 }
 
 func updateTemp(temps map[string]int) map[string]error {
-	temps["Crazy1"] = rand.Intn(50) + 50
-	temps["Crazy2"] = rand.Intn(50) + 50
-	return nil
-}
-
-func updateMem(mems map[string]devices.MemoryInfo) map[string]error {
-	m := uint64(rand.Intn(80e8))
-	max := uint64(80e8)
-	mems["Dum1"] = devices.MemoryInfo{
-		Total:       max,
-		Used:        m,
-		UsedPercent: (float64(m) / float64(max)) * 100,
+	if &_tempData != &temps {
+		for name, val := range _tempData {
+			temps[name] = val
+		}
+		_tempData = temps
 	}
 	return nil
 }
 
-func updateUsage(cpus map[string]int, _ time.Duration, _ bool) map[string]error {
-	cpus["Wopper01"] = rand.Intn(100)
-	cpus["Wopper02"] = rand.Intn(100)
+func updateMem(mems map[string]devices.MemoryInfo) map[string]error {
 	return nil
+}
+
+func updateUsage(cpus map[string]int, _ time.Duration, _ bool) map[string]error {
+	return nil
+}
+
+const (
+	_gotop = "gotop_"
+	_cpu   = "cpu_"
+	_temp  = "temp_"
+	_net   = "net_"
+	_disk  = "disk_"
+	_mem   = "memory_"
+)
+
+var (
+	_cpus  map[string]string // int gotop_cpu_CPU0
+	_temps map[string]string // int gotop_temp_acpitz
+	_nets  map[string]string // int gotop_net_recv
+	_disks map[string]string // float % gotop_disk_:dev:mmcblk0p1
+	_mems  map[string]string // float % gotop_memory_Main
+)
+
+func cpus(names []string) map[string]string {
+	rv := make(map[string]string)
+	for _, n := range names {
+		if strings.Contains(n, _gotop) && strings.Contains(n, _cpu) {
+			name := n[len(_gotop)+len(_cpu):]
+			rv[name] = n
+		}
+	}
+	return rv
 }
