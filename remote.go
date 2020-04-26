@@ -14,6 +14,12 @@ import (
 
 // TODO Provide way for extensions to add and get configuration data
 func init() {
+	_cpuData = make(map[string]int)
+	_tempData = make(map[string]int)
+	_netData = make(map[string]int)
+	_diskData = make(map[string]float64)
+	_memData = make(map[string]devices.MemoryInfo)
+
 	devices.RegisterTemp(updateTemp)
 	devices.RegisterMem(updateMem)
 	devices.RegisterCPU(updateUsage)
@@ -28,7 +34,7 @@ func init() {
 			}
 			bi := bufio.NewScanner(res.Body)
 			errs := process(bi)
-			for _, err := range errs {
+			for err, _ := range errs {
 				if !loggedErrs[err] {
 					log.Print(err)
 					loggedErrs[err] = true
@@ -45,11 +51,11 @@ var (
 	_tempData map[string]int
 	_netData  map[string]int
 	_diskData map[string]float64
-	_memData  map[string]float64
+	_memData  map[string]devices.MemoryInfo
 )
 
-func process(data *bufio.Scanner) []error {
-	rv := make([]error, 0)
+func process(data *bufio.Scanner) map[error]bool {
+	rv := make(map[error]bool)
 	for data.Scan() {
 		line := data.Text()
 		if line[0] == '#' {
@@ -61,15 +67,39 @@ func process(data *bufio.Scanner) []error {
 		sub := line[6:]
 		switch {
 		case strings.HasPrefix(sub, _cpu): // int gotop_cpu_CPU0
-			procInt(line, sub[10:], _cpuData, rv)
+			procInt(line, sub[4:], _cpuData, rv)
 		case strings.HasPrefix(sub, _temp): // int gotop_temp_acpitz
-			procInt(line, sub[11:], _tempData, rv)
+			procInt(line, sub[5:], _tempData, rv)
 		case strings.HasPrefix(sub, _net): // int gotop_net_recv
-			procInt(line, sub[10:], _tempData, rv)
+			procInt(line, sub[4:], _netData, rv)
 		case strings.HasPrefix(sub, _disk): // float % gotop_disk_:dev:mmcblk0p1
-			procFloat(line, sub[11:], _diskData, rv)
+			parts := strings.Split(sub[5:], " ")
+			if len(parts) < 2 {
+				rv[fmt.Errorf(`bad data; not enough columns in "%s"`, line)] = true
+				continue
+			}
+			val, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil {
+				rv[err] = true
+				continue
+			}
+			_diskData[parts[0]] = val
 		case strings.HasPrefix(sub, _mem): // float % gotop_memory_Main
-			procFloat(line, sub[13:], _memData, rv)
+			parts := strings.Split(sub[7:], " ")
+			if len(parts) < 2 {
+				rv[fmt.Errorf(`bad data; not enough columns in "%s"`, line)] = true
+				continue
+			}
+			val, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil {
+				rv[err] = true
+				continue
+			}
+			_memData[parts[0]] = devices.MemoryInfo{
+				Total:       100,
+				Used:        uint64(100.0 / val),
+				UsedPercent: val,
+			}
 		default:
 			// NOP!  This is a metric we don't care about.
 		}
@@ -77,32 +107,18 @@ func process(data *bufio.Scanner) []error {
 	return rv
 }
 
-func procInt(line, sub string, data map[string]int, errs []error) {
+func procInt(line, sub string, data map[string]int, errs map[error]bool) {
 	parts := strings.Split(sub, " ")
 	if len(parts) < 2 {
-		errs = append(errs, fmt.Errorf("bad data; not enough columns in %s", line))
+		errs[fmt.Errorf(`bad data; not enough columns in "%s"`, line)] = true
 		return
 	}
 	val, err := strconv.Atoi(parts[1])
 	if err != nil {
-		errs = append(errs, err)
+		errs[err] = true
 		return
 	}
-	data[sub] = val
-}
-
-func procFloat(line, sub string, data map[string]float64, errs []error) {
-	parts := strings.Split(sub, " ")
-	if len(parts) < 2 {
-		errs = append(errs, fmt.Errorf("bad data; not enough columns in %s", line))
-		return
-	}
-	val, err := strconv.ParseFloat(parts[1], 64)
-	if err != nil {
-		errs = append(errs, err)
-		return
-	}
-	data[sub] = val
+	data[parts[0]] = val
 }
 
 func updateTemp(temps map[string]int) map[string]error {
@@ -116,10 +132,22 @@ func updateTemp(temps map[string]int) map[string]error {
 }
 
 func updateMem(mems map[string]devices.MemoryInfo) map[string]error {
+	if &_memData != &mems {
+		for name, val := range _memData {
+			mems[name] = val
+		}
+		_memData = mems
+	}
 	return nil
 }
 
 func updateUsage(cpus map[string]int, _ time.Duration, _ bool) map[string]error {
+	if &_cpuData != &cpus {
+		for name, val := range _cpuData {
+			cpus[name] = val
+		}
+		_cpuData = cpus
+	}
 	return nil
 }
 
@@ -131,22 +159,3 @@ const (
 	_disk  = "disk_"
 	_mem   = "memory_"
 )
-
-var (
-	_cpus  map[string]string // int gotop_cpu_CPU0
-	_temps map[string]string // int gotop_temp_acpitz
-	_nets  map[string]string // int gotop_net_recv
-	_disks map[string]string // float % gotop_disk_:dev:mmcblk0p1
-	_mems  map[string]string // float % gotop_memory_Main
-)
-
-func cpus(names []string) map[string]string {
-	rv := make(map[string]string)
-	for _, n := range names {
-		if strings.Contains(n, _gotop) && strings.Contains(n, _cpu) {
-			name := n[len(_gotop)+len(_cpu):]
-			rv[name] = n
-		}
-	}
-	return rv
-}
