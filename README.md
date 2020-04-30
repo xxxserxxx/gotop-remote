@@ -1,3 +1,88 @@
 # Remote monitoring extension for gotop
 
 
+Show data from gotop running on remote servers in a locally-running gotop. This allows gotop to be used as a simple terminal dashboard for remote servers.
+
+![Screenshot](/screenshots/fourby.png)
+
+
+## Installation
+
+Builds are available in the [Releases](Releases) tab. However, if you want to use more than one gotop extension, you must build it yourself.  A [gotop extension build tool](https://github.com/xxxserxxx/gotop-builder) for doing this is provided that simplifies the process; you will still need Go >= 1.14 installed.
+
+First, check out the builder project and, in that directory, run the following command:
+
+```
+go run ./build.go -r v4.0.0 github.com/xxxserxxx/gotop-remote 
+```
+
+Add extra extensions on the same line; for example, to also enable NVidia GPU support, run:
+
+```
+go run ./build.go -r v4.0.0 \
+    github.com/xxxserxxx/gotop-remote \
+    github.com/xxxserxxx/gotop-nvidia
+```
+
+Then compile gotop:
+
+```
+go build -o gotop-remote-nvidia \
+    -ldflags "-X main.Version=v4.0.0+remote -X main.BuildDate=$(date +%Y%m%dT%H%M%s)" \
+    ./gotop.go
+```
+
+The `-ldflags` argument is entirely optional, but it does put a version on the binary so you can run `gotop -V` and have a useful response.
+
+The `-r` version (`v4.0.0` in the example) is the version of `gotop` you want to use; you probably want to use the most recent version, whatever that is. The extension will complain if the version is incompatible.
+
+Once compilation is complete, move the new `gotop` executable wherever you want it to live, configure your remotes (see [Configuration]) and off you go.## Configuration
+
+gotop exports metrics on a local port with the `--export <port>` argument. This is a simple, read-only interface with the expectation that it will be run behind some proxy that provides security.  A gotop built with this extension can read this data and render it as if the devices being monitored were on the local machine.
+
+
+### An example
+
+One way to set this up is to run gotop behind [Caddy](https://caddyserver.com). The `Caddyfile` would have something like this in it:
+
+```
+gotop.myserver.net {
+        basicauth / gotopusername supersecretpassword
+        proxy / http://localhost:8089
+}
+```                
+
+Then, gotop would be run in a persistent terminal session such as [tmux](https://github.com/tmux/tmux) with the following command:
+
+```
+gotop -x :8089
+```
+
+Then, on a local laptop, create a config file named `myserver.conf` with the following lines:
+
+```
+remote-myserver-url=https://gotopusername:supersecretpassword@gotop.myserver.net/metrics
+remote-myserver-refresh=2
+```
+
+Note the `/metrics` at the end -- don't omit that, and don't strip it in Caddy.  The refresh value is in seconds. Run gotop with:
+
+```
+gotop -C myserver.conf
+```
+
+and you should see your remote server sensors as if it were running on your local machine.
+
+You can add as many remote servers as you like in the config file; just follow the pattern `remote-ANYTHING-url` and `remote-ANYTHING-refresh`.
+
+## Why
+
+This can combine multiple servers into one view, which makes it more practical to use a terminal-based monitor when you have more than a couple of servers, or when you don't want to dedicate an entire wide-screen monitor to a bunch of gotop instances. It's simple to set up, configure, and run, and reasonably resource efficient.
+
+## How
+
+Since v3.5.2, gotop's been able to export its sensor data as [Prometheus](https://prometheus.io/) metrics using the `--export` flag.  Prometheus has the advantages of being simple to integrate into clients, and a nice on-demand design that depends on the *aggregator* pulling data from monitors, rather than the clients pushing data to a server. In essence, it inverts the client/server relationship for monitoring/aggregating servers and the things it's monitoring. In gotop's case, it means you can turn on `-x` and not have it impact your gotop instance at all, until you actively poll it.  It puts the control on measurement frequency in a single place -- your local gotop. It means you can simply stop your local gotop instance (e.g., when you go to bed) and the demand on the servers you were monitoring drops to 0. 
+
+On the client (local) side, sensors are abstracted as devices that are read by widgets, and we've simply implemented virtual devices that poll data from remote Prometheus instances. At a finer grain, there's a single process spawned for each remote server that periodically polls that server and collects the information.  When the widget updates and asks the virtual device for data, the device consults the cached data and provides it as the measurement.
+
+The next iteration will optimize the metrics transfer protocol; while it'll likely remain HTTP, optimizations may include HTTP/2.0 streams to reduce the HTTP connection overhead, and a binary payload format for the metrics -- although HTTP/2.0 compression may eliminate any benefit of doing that.

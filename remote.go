@@ -17,8 +17,13 @@ import (
 var name string
 var remote_url string
 var sleep time.Duration
+var lock sync.Mutex
 
-// TODO Provide way for extensions to add and get configuration data
+// FIXME Widgets don't align values
+// TODO remote network & disk aren't reported
+// TODO network resiliency; I believe it currently crashes gotop when the network goes down
+// TODO Replace custom decoder with https://github.com/prometheus/common/blob/master/expfmt/decode.go
+// TODO MQTT / Stomp / MsgPack
 func init() {
 	_cpuData = make(map[string]int)
 	_tempData = make(map[string]int)
@@ -30,6 +35,7 @@ func init() {
 	opflag.StringVarP(&remote_url, "remote-url", "", "", "Remote: URL of remote gotop")
 	opflag.DurationVarP(&sleep, "remote-refresh", "", 0, "Remote: Frequency to refresh data, in seconds")
 
+	lock = sync.Mutex{}
 	devices.RegisterStartup(startup)
 }
 
@@ -61,6 +67,14 @@ func startup(vars map[string]string) error {
 	devices.RegisterMem(updateMem)
 	devices.RegisterCPU(updateUsage)
 
+	// We need to know what we're dealing with, so the following code does two
+	// things, one of them sneakily. It forks off background processes
+	// to periodically pull data from remote sources and cache the results for
+	// when the UI wants it. When it's run the first time, it sets up a WaitGroup
+	// so that it can hold off returning until it's received data from the remote
+	// so that the rest of the program knows how many cores, disks, etc. it needs
+	// to set up UI elements for. After the first run, each process discards the
+	// the wait group.
 	w := &sync.WaitGroup{}
 	for n, r := range remotes {
 		n = n + "-"
@@ -107,6 +121,7 @@ var (
 )
 
 func process(host string, data *bufio.Scanner) {
+	lock.Lock()
 	for data.Scan() {
 		line := data.Text()
 		if line[0] == '#' {
@@ -165,6 +180,7 @@ func process(host string, data *bufio.Scanner) {
 			// NOP!  This is a metric we don't care about.
 		}
 	}
+	lock.Unlock()
 }
 
 func procInt(host, line, sub string, data map[string]int) {
@@ -182,33 +198,30 @@ func procInt(host, line, sub string, data map[string]int) {
 }
 
 func updateTemp(temps map[string]int) map[string]error {
-	if &_tempData != &temps {
-		for name, val := range _tempData {
-			temps[name] = val
-		}
-		_tempData = temps
+	lock.Lock()
+	for name, val := range _tempData {
+		temps[name] = val
 	}
+	lock.Unlock()
 	return nil
 }
 
-// FIXME The units are wrong; 1.3KB / 100B ; 8388608TB / 100B
+// FIXME The units are wrong: getting bytes, assuming they're %
 func updateMem(mems map[string]devices.MemoryInfo) map[string]error {
-	if &_memData != &mems {
-		for name, val := range _memData {
-			mems[name] = val
-		}
-		_memData = mems
+	lock.Lock()
+	for name, val := range _memData {
+		mems[name] = val
 	}
+	lock.Unlock()
 	return nil
 }
 
 func updateUsage(cpus map[string]int, _ time.Duration, _ bool) map[string]error {
-	if &_cpuData != &cpus {
-		for name, val := range _cpuData {
-			cpus[name] = val
-		}
-		_cpuData = cpus
+	lock.Lock()
+	for name, val := range _cpuData {
+		cpus[name] = val
 	}
+	lock.Unlock()
 	return nil
 }
 
