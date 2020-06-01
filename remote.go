@@ -216,7 +216,7 @@ func updateMem(mems map[string]devices.MemoryInfo) map[string]error {
 	return nil
 }
 
-func updateUsage(cpus map[string]int, _ time.Duration, _ bool) map[string]error {
+func updateUsage(cpus map[string]int, _ bool) map[string]error {
 	lock.Lock()
 	for name, val := range _cpuData {
 		cpus[name] = val

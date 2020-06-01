@@ -36,9 +36,16 @@ The `-ldflags` argument is entirely optional, but it does put a version on the b
 
 The `-r` version (`v4.0.0` in the example) is the version of `gotop` you want to use; you probably want to use the most recent version, whatever that is. The extension will complain if the version is incompatible.
 
-Once compilation is complete, move the new `gotop` executable wherever you want it to live, configure your remotes (see [Configuration]) and off you go.## Configuration
+Once compilation is complete, move the new `gotop` executable wherever you want it to live, configure your remotes (see [Configuration]) and off you go.
+
+
+## Configuration
 
 gotop exports metrics on a local port with the `--export <port>` argument. This is a simple, read-only interface with the expectation that it will be run behind some proxy that provides security.  A gotop built with this extension can read this data and render it as if the devices being monitored were on the local machine.
+
+On the local side, gotop gets the remote information from a config file; it is not possible to pass this in on the command line. The recommended approach is to create a remote-specific config file, and then run gotop with the `-C <remote-config-filename>` option.  Two options are available for each remote server; one of these, the connection URL, is required.
+
+The format of the configuration keys are: `remote-SERVERNAME-url` and `remote-SERVERNAME-refresh`; `SERVERNAME` can be anything -- it doesn't have to reflect any real attribute of the server, but it will be used in widget labels for data from that server.  For example, CPU data from `remote-Jerry-url` will show up as `Jerry-CPU0`, `Jerry-CPU1`, and so on; memory data will be labeled `Jerry-Main` and `Jerry-Swap`.  If the refresh rate option is omitted, it defaults to 1 second.
 
 
 ### An example
@@ -73,7 +80,7 @@ gotop -C myserver.conf
 
 and you should see your remote server sensors as if it were running on your local machine.
 
-You can add as many remote servers as you like in the config file; just follow the pattern `remote-ANYTHING-url` and `remote-ANYTHING-refresh`.
+You can add as many remote servers as you like in the config file; just follow the naming pattern.
 
 ## Why
 
