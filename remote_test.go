@@ -7,10 +7,9 @@ import (
 	"io/ioutil"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/xxxserxxx/gotop/v3/devices"
+	"github.com/xxxserxxx/gotop/v4/devices"
 )
 
 var testData []byte
@@ -25,8 +24,7 @@ func init() {
 
 func Test_process(t *testing.T) {
 	s := bufio.NewScanner(bytes.NewReader(testData))
-	errs := process(s)
-	assert.Empty(t, errs)
+	process("", s)
 	assert.Equal(t, 8, len(_cpuData))
 	assert.Equal(t, 11, len(_tempData))
 	assert.Equal(t, 2, len(_memData))
@@ -56,7 +54,7 @@ func Test_procInt(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			procInt(tt.args.line, tt.args.sub, tt.args.data, tt.args.errs)
+			procInt("", tt.args.line, tt.args.sub, tt.args.data)
 			assert.Equal(t, tt.expectedData, tt.args.data)
 			assert.Equal(t, tt.expectedErrorCount, len(tt.args.errs))
 		})
@@ -87,7 +85,7 @@ func Test_updateMem(t *testing.T) {
 	mems := make(map[string]devices.MemoryInfo)
 
 	s := bufio.NewScanner(bytes.NewReader(testData))
-	process(s)
+	process("", s)
 	updateMem(mems)
 	u := 36.18349678265076
 	assert.Equal(t, devices.MemoryInfo{Total: 100, Used: uint64(100.0 / u), UsedPercent: u}, _memData["Main"])
@@ -95,7 +93,7 @@ func Test_updateMem(t *testing.T) {
 	assert.Equal(t, devices.MemoryInfo{Total: 100, Used: uint64(100.0 / u), UsedPercent: u}, _memData["Swap"])
 
 	s = bufio.NewScanner(bytes.NewReader([]byte("gotop_memory_Main 40.55\ngotop_memory_Swap 10.10")))
-	process(s)
+	process("", s)
 	u = 40.55
 	assert.Equal(t, devices.MemoryInfo{Total: 100, Used: uint64(100.0 / u), UsedPercent: u}, _memData["Main"])
 	u = 10.10
@@ -106,8 +104,8 @@ func Test_updateUsage(t *testing.T) {
 	cpus := make(map[string]int)
 
 	s := bufio.NewScanner(bytes.NewReader(testData))
-	process(s)
-	updateUsage(cpus, time.Second, false)
+	process("", s)
+	updateUsage(cpus, false)
 	for i, v := range []int{17, 6, 2, 2, 6, 6, 3, 9} {
 		assert.Equal(t, v, cpus[fmt.Sprintf("CPU%d", i)])
 	}
@@ -121,8 +119,8 @@ gotop_cpu_CPU5 55
 gotop_cpu_CPU6 66
 gotop_cpu_CPU7 77`)
 	s = bufio.NewScanner(bytes.NewReader(bs))
-	process(s)
-	updateUsage(cpus, time.Second, false)
+	process("", s)
+	updateUsage(cpus, false)
 	for i := 0; i < 8; i++ {
 		assert.Equal(t, i*11, cpus[fmt.Sprintf("CPU%d", i)])
 	}
