@@ -8,7 +8,7 @@ Show data from gotop running on remote servers in a locally-running gotop. This 
 
 ## Installation
 
-Builds are available in the [Releases](Releases) tab, and also in the [gotop-builder](https://github.com/xxxserxxx/gotop-builder/Releases) project. 
+Builds are available in the [Releases](https://github.com/xxxserxxx/gotop-remote/releases) tab, and also in the [gotop-builder](https://github.com/xxxserxxx/gotop-builder/releases) project. 
 
 
 ## Configuration
