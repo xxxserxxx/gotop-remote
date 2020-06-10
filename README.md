@@ -8,35 +8,7 @@ Show data from gotop running on remote servers in a locally-running gotop. This 
 
 ## Installation
 
-Builds are available in the [Releases](Releases) tab. However, if you want to use more than one gotop extension, you must build it yourself.  A [gotop extension build tool](https://github.com/xxxserxxx/gotop-builder) for doing this is provided that simplifies the process; you will still need Go >= 1.14 installed.
-
-First, check out the builder project and, in that directory, run the following command:
-
-```
-go run ./build.go -r v4.0.0 github.com/xxxserxxx/gotop-remote 
-```
-
-Add extra extensions on the same line; for example, to also enable NVidia GPU support, run:
-
-```
-go run ./build.go -r v4.0.0 \
-    github.com/xxxserxxx/gotop-remote \
-    github.com/xxxserxxx/gotop-nvidia
-```
-
-Then compile gotop:
-
-```
-go build -o gotop-remote-nvidia \
-    -ldflags "-X main.Version=v4.0.0+remote -X main.BuildDate=$(date +%Y%m%dT%H%M%s)" \
-    ./gotop.go
-```
-
-The `-ldflags` argument is entirely optional, but it does put a version on the binary so you can run `gotop -V` and have a useful response.
-
-The `-r` version (`v4.0.0` in the example) is the version of `gotop` you want to use; you probably want to use the most recent version, whatever that is. The extension will complain if the version is incompatible.
-
-Once compilation is complete, move the new `gotop` executable wherever you want it to live, configure your remotes (see [Configuration]) and off you go.
+Builds are available in the [Releases](Releases) tab, and also in the [gotop-builder](https://github.com/xxxserxxx/gotop-builder/Releases) project. 
 
 
 ## Configuration
@@ -93,3 +65,36 @@ Since v3.5.2, gotop's been able to export its sensor data as [Prometheus](https:
 On the client (local) side, sensors are abstracted as devices that are read by widgets, and we've simply implemented virtual devices that poll data from remote Prometheus instances. At a finer grain, there's a single process spawned for each remote server that periodically polls that server and collects the information.  When the widget updates and asks the virtual device for data, the device consults the cached data and provides it as the measurement.
 
 The next iteration will optimize the metrics transfer protocol; while it'll likely remain HTTP, optimizations may include HTTP/2.0 streams to reduce the HTTP connection overhead, and a binary payload format for the metrics -- although HTTP/2.0 compression may eliminate any benefit of doing that.
+
+## Compiling
+
+If you want to use more than one gotop extension, you must either get the all-inclusive build from gotop-builder, or build it yourself.  The gotop-builder simplifies the process; you will still need Go >= 1.14 installed.
+
+First, check out the builder project and, in that directory, run the following command:
+
+```
+go run ./build.go -r v4.0.0 github.com/xxxserxxx/gotop-remote 
+```
+
+Add extra extensions on the same line; for example, to also enable NVidia GPU support, run:
+
+```
+go run ./build.go -r v4.0.0 \
+    github.com/xxxserxxx/gotop-remote \
+    github.com/xxxserxxx/gotop-nvidia
+```
+
+Then compile gotop:
+
+```
+go build -o gotop-remote-nvidia \
+    -ldflags "-X main.Version=v4.0.0+remote -X main.BuildDate=$(date +%Y%m%dT%H%M%s)" \
+    ./gotop.go
+```
+
+The `-ldflags` argument is entirely optional, but it does put a version on the binary so you can run `gotop -V` and have a useful response.
+
+The `-r` version (`v4.0.0` in the example) is the version of `gotop` you want to use; you probably want to use the most recent version, whatever that is. The extension will complain if the version is incompatible.
+
+Once compilation is complete, move the new `gotop` executable wherever you want it to live, configure your remotes (see [Configuration]) and off you go.
+
